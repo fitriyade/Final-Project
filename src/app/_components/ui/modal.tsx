@@ -13,15 +13,29 @@ export default function Modal({ isOpen, onClose, children }: ModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Overlay */}
       <div
         onClick={onClose}
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
       />
 
       {/* Modal Content */}
-      <div className="relative bg-white w-full max-w-md mx-4 rounded-2xl shadow-xl p-6 animate-fadeIn">
+      <div
+        className="
+          relative 
+          bg-white 
+          w-full 
+          max-w-2xl
+          max-h-[90vh] 
+          overflow-y-auto 
+          rounded-2xl 
+          shadow-2xl 
+          p-6 
+          animate-fadeIn
+        "
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Close Button */}
         <button
           onClick={onClose}

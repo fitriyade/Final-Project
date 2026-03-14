@@ -1,122 +1,277 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Heart } from "lucide-react";
+import { Heart, MessageCircle, Trash2 } from "lucide-react";
 
 export interface PostActionsProps {
   postId: string | number;
 }
 
+type Comment = {
+  id: string;
+  text: string;
+  createdAt: string;
+};
+
+const BASE_URL = "https://photo-sharing-api-bootcamp.do.dibimbing.id";
+const API_KEY = "c7b411cc-0e7c-4ad1-aa3f-822b00e7734b";
+
 export default function PostActions({ postId }: PostActionsProps) {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [showCommentInput, setShowCommentInput] = useState(false);
-  const [comments, setComments] = useState<
-    { text: string; editing: boolean; createdAt: string }[]
-  >([]);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [commentInput, setCommentInput] = useState("");
+  const [loadingLike, setLoadingLike] = useState(false);
+  const [loadingInitial, setLoadingInitial] = useState(true);
 
-  //comment function
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+  // GET LIKE STATUS & COUNT
+
   useEffect(() => {
-    const savedComments = localStorage.getItem(`comments-${postId}`);
-    if (savedComments) setComments(JSON.parse(savedComments));
+    const fetchLikeData = async () => {
+      try {
+        setLoadingInitial(true);
+        const res = await fetch(`${BASE_URL}/api/v1/post/${postId}`, {
+          headers: {
+            apiKey: API_KEY,
+            Authorization: token ? `Bearer ${token}` : "",
+          },
+        });
 
-    const savedLike = localStorage.getItem(`like-${postId}`);
-    if (savedLike) {
-      const parsed = JSON.parse(savedLike);
-      setLiked(parsed.liked);
-      setLikeCount(parsed.likeCount);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.data) {
+            setLikeCount(data.data.likesCount || 0);
+            if (data.data.isLiked !== undefined) {
+              setLiked(data.data.isLiked);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch like data", error);
+      } finally {
+        setLoadingInitial(false);
+      }
+    };
+
+    fetchLikeData();
+  }, [postId, token]);
+
+  // HANDLE LIKE / UNLIKE
+
+  const handleLikeUnlike = async () => {
+    if (loadingLike || loadingInitial || !token) {
+      if (!token) alert("Please login to like posts");
+      return;
     }
+
+    setLoadingLike(true);
+    const previousLiked = liked;
+    setLiked(!liked);
+    setLikeCount((prev) => (!liked ? prev + 1 : prev - 1));
+
+    try {
+      const endpoint = !previousLiked ? "like" : "unlike";
+      const res = await fetch(`${BASE_URL}/api/v1/${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apiKey: API_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ postId: String(postId) }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || `${endpoint} operation failed`);
+      }
+
+      if (data.data?.likeCount !== undefined) setLikeCount(data.data.likeCount);
+      if (data.data?.isLiked !== undefined) setLiked(data.data.isLiked);
+    } catch (error) {
+      // rollback UI state jika gagal
+      setLiked(previousLiked);
+      setLikeCount((prev) => (previousLiked ? prev : prev - 1));
+      console.error(`${liked ? "Unlike" : "Like"} failed`, error);
+      alert(`Failed to ${liked ? "unlike" : "like"} post. Please try again.`);
+    } finally {
+      setLoadingLike(false);
+    }
+  };
+
+  // GET COMMENTS
+
+  useEffect(() => {
+    const fetchComments = async () => {
+      try {
+        const res = await fetch(
+          `${BASE_URL}/api/v1/comments?postId=${postId}`,
+          { headers: { apiKey: API_KEY } },
+        );
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const formatted = (data?.data || [])
+          .filter((c: any) => c != null)
+          .map((c: any) => ({
+            id: String(c.id),
+            text: c.comment || "",
+            createdAt: c.createdAt || new Date().toISOString(),
+          }));
+
+        setComments(formatted);
+      } catch (error) {
+        console.error("Failed to fetch comments", error);
+      }
+    };
+
+    fetchComments();
   }, [postId]);
 
-  const saveComments = (
-    newComments: { text: string; editing: boolean; createdAt: string }[],
-  ) => {
-    setComments(newComments);
-    localStorage.setItem(`comments-${postId}`, JSON.stringify(newComments));
-  };
+  // ADD COMMENT
 
-  // Like function
-  const saveLike = (newLiked: boolean, newLikeCount: number) => {
-    setLiked(newLiked);
-    setLikeCount(newLikeCount);
-    localStorage.setItem(
-      `like-${postId}`,
-      JSON.stringify({ liked: newLiked, likeCount: newLikeCount }),
-    );
-  };
+  const addComment = async () => {
+    if (!commentInput.trim() || !postId || !token) {
+      if (!token) alert("Please login to comment");
+      return;
+    }
 
-  const toggleLike = () => {
-    saveLike(!liked, liked ? likeCount - 1 : likeCount + 1);
-  };
+    const tempId = "temp-" + Date.now();
+    const tempComment: Comment = {
+      id: tempId,
+      text: commentInput,
+      createdAt: new Date().toISOString(),
+    };
 
-  const addComment = () => {
-    if (commentInput.trim() !== "") {
-      const newComment = {
-        text: commentInput,
-        editing: false,
-        createdAt: new Date().toLocaleString(),
-      };
-      saveComments([...comments, newComment]);
-      setCommentInput("");
+    setComments((prev = []) => [...prev.filter(Boolean), tempComment]);
+    setCommentInput("");
+
+    try {
+      const res = await fetch(`${BASE_URL}/api/v1/create-comment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apiKey: API_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ postId, comment: tempComment.text }),
+      });
+
+      if (!res.ok) throw new Error(`Create comment failed: ${res.status}`);
+
+      const data = await res.json();
+
+      setComments((prev = []) =>
+        prev
+          .filter(Boolean)
+          .map((c) =>
+            c && c.id === tempId
+              ? {
+                  ...c,
+                  id: String(data.data?.id || c.id),
+                  createdAt: data.data?.createdAt || c.createdAt,
+                }
+              : c,
+          )
+          .filter(Boolean),
+      );
+    } catch (error) {
+      console.error(error);
+      setComments((prev = []) => prev.filter((c) => c && c.id !== tempId));
+      alert("Failed to add comment. Please try again.");
     }
   };
 
-  // delete comment
-  const deleteComment = (index: number) => {
-    const newComments = comments.filter((_, i) => i !== index);
-    saveComments(newComments);
-  };
+  // DELETE COMMENT
 
-  const toggleEditComment = (index: number) => {
-    const newComments = [...comments];
-    newComments[index].editing = !newComments[index].editing;
-    saveComments(newComments);
-  };
+  const deleteComment = async (commentId: string | number) => {
+    if (!commentId || !token) {
+      if (!token) alert("Please login to delete comments");
+      return;
+    }
 
-  const saveEditComment = (index: number, newText: string) => {
-    const newComments = [...comments];
-    newComments[index].text = newText;
-    newComments[index].editing = false;
-    saveComments(newComments);
+    const idStr = String(commentId);
+
+    if (idStr.startsWith("temp-")) {
+      setComments((prev = []) =>
+        prev.filter((c) => c && String(c.id) !== idStr),
+      );
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BASE_URL}/api/v1/delete-comment/${idStr}`, {
+        method: "DELETE",
+        headers: {
+          apiKey: API_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Delete failed: ${res.status} - ${text}`);
+      }
+
+      setComments((prev = []) =>
+        prev.filter((c) => c && String(c.id) !== idStr),
+      );
+    } catch (error) {
+      console.error("Delete failed", error);
+      alert("Failed to delete comment. Please try again.");
+    }
   };
 
   return (
-    <div className="space-y-2">
-      {/* Actions */}
-      <div className="flex gap-6 text-slate-500 text-sm mb-2">
+    <div className="space-y-3">
+      {/* Actions*/}
+      <div className="flex gap-4 text-sm">
         <button
-          className={`flex items-center gap-1 transition ${
-            liked ? "text-red-500" : "hover:text-indigo-600"
-          }`}
-          onClick={toggleLike}
+          className={`flex items-center gap-1.5 transition-all ${
+            liked ? "text-red-500" : "text-blue-400 hover:text-blue-500"
+          } ${loadingLike || loadingInitial ? "opacity-50 cursor-not-allowed" : ""}`}
+          onClick={handleLikeUnlike}
+          disabled={loadingLike || loadingInitial}
         >
-          <Heart />
-          {likeCount > 0 && <span>{likeCount}</span>}
+          <Heart className={`w-5 h-5 ${liked ? "fill-red-500" : ""}`} />
+          {likeCount > 0 && <span className="font-medium">{likeCount}</span>}
         </button>
+
         <button
-          className="hover:text-indigo-600 transition"
+          className={`flex items-center gap-1.5 transition-all ${
+            showCommentInput
+              ? "text-blue-600"
+              : "text-blue-400 hover:text-blue-500"
+          }`}
           onClick={() => setShowCommentInput(!showCommentInput)}
         >
-          Comment
+          <MessageCircle className="w-5 h-5" />
+          {comments.length > 0 && (
+            <span className="font-medium">{comments.length}</span>
+          )}
         </button>
-        <button className="hover:text-indigo-600 transition">Share</button>
       </div>
 
       {/* Comment Input */}
       {showCommentInput && (
-        <div className="flex gap-2 mb-2">
+        <div className="flex gap-2 mt-2">
           <input
-            id={`commentInput-${postId}`}
             type="text"
-            placeholder="Write a comment..."
-            className="flex-1 border rounded px-2 py-1 text-sm"
+            placeholder={token ? "Write a comment..." : "Login to comment"}
+            className="flex-1 border border-blue-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300/50 focus:border-blue-300 transition bg-blue-50/50 placeholder:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
             value={commentInput}
             onChange={(e) => setCommentInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addComment()}
+            disabled={!token}
           />
           <button
-            className="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700 transition"
+            className="bg-blue-400 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={addComment}
+            disabled={!commentInput.trim() || !token}
           >
             Post
           </button>
@@ -124,59 +279,30 @@ export default function PostActions({ postId }: PostActionsProps) {
       )}
 
       {/* Comment List */}
-      <div className="space-y-1">
-        {comments.map((c, i) => (
-          <div key={i} className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              {c.editing ? (
-                <>
-                  <input
-                    type="text"
-                    className="flex-1 border rounded px-2 py-1 text-sm"
-                    value={c.text}
-                    onChange={(e) => {
-                      const newComments = [...comments];
-                      newComments[i].text = e.target.value;
-                      setComments(newComments);
-                    }}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" && saveEditComment(i, c.text)
-                    }
-                  />
-                  <button
-                    className="text-green-600 hover:text-green-800 text-sm"
-                    onClick={() => saveEditComment(i, c.text)}
-                  >
-                    Save
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-sm text-slate-700">
-                    {c.text}
-                  </span>
-                  <button
-                    className="text-indigo-600 hover:text-indigo-800 text-sm"
-                    onClick={() => toggleEditComment(i)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="text-red-500 hover:text-red-700 text-sm"
-                    onClick={() => deleteComment(i)}
-                  >
-                    Delete
-                  </button>
-                </>
+      {comments.length > 0 && (
+        <div className="space-y-3 mt-3 pt-3 border-t border-blue-100">
+          {comments.filter(Boolean).map((comment) => (
+            <div key={comment.id} className="flex items-start gap-2 group">
+              <div className="flex-1">
+                <div className="bg-blue-100/50 rounded-xl px-3 py-2 w-full">
+                  <p className="text-sm text-gray-700">{comment.text}</p>
+                </div>
+                <span className="text-xs text-blue-400 mt-1 block">
+                  {new Date(comment.createdAt).toLocaleString()}
+                </span>
+              </div>
+              {token && (
+                <button
+                  onClick={() => deleteComment(comment.id)}
+                  className="text-red-400 hover:text-red-500 p-1.5 rounded-lg"
+                >
+                  <Trash2 className="w-5 h-5 mt-1" />
+                </button>
               )}
             </div>
-            {/* Tanggal & Waktu */}
-            {!c.editing && (
-              <span className="text-xs text-slate-400">{c.createdAt}</span>
-            )}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

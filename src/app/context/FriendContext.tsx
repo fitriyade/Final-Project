@@ -26,20 +26,18 @@ const FriendsContext = createContext<FriendsContextType | undefined>(undefined);
 export const FriendsProvider = ({ children }: { children: ReactNode }) => {
   const [friends, setFriends] = useState<ExploreUser[]>([]);
 
-  //  Load dari localStorage hanya di client
   useEffect(() => {
     const saved = localStorage.getItem("friends");
     if (saved) setFriends(JSON.parse(saved));
   }, []);
 
-  //  Simpan ke localStorage setiap ada perubahan friends
   useEffect(() => {
     localStorage.setItem("friends", JSON.stringify(friends));
   }, [friends]);
 
   const addFriend = (user: ExploreUser) => {
     setFriends((prev) => {
-      // hindari duplikat
+      // no duplikat
       if (prev.find((u) => u.id === user.id)) return prev;
       return [...prev, user];
     });

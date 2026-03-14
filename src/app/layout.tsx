@@ -25,7 +25,7 @@ export default function RootLayout({
       <body className={`m-0 p-0 ${poppins.className}`}>
         <FriendsProvider>
           <Navbar />
-          <main className="pt-3">{children}</main>
+          <main>{children}</main>
           <MobileBottomNav />
         </FriendsProvider>
       </body>
